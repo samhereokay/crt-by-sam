@@ -1,3 +1,7 @@
+
+# Inspired by this Illustration!
+<img width="1778" height="790" alt="CRT-MODEL-PRO" src="https://github.com/user-attachments/assets/69ebe1bb-0399-4a24-ab50-8add6a82e7ef" />
+
 # CRT Model Pro — GXV-SMT + CRT (Ultimate Build)
 
 Pine Script v6 indicator (`overlay=true`). This is a single merged script combining
