@@ -12,12 +12,12 @@ File: `GXV-SMT_CRT_ULTIMATE_FINAL.pine`
 
 | Engine | Status | Source |
 |---|---|---|
-| CRT core (HTF mapping, candle build, separators) | Original, untouched | GXV base file |
-| ICT / QT Alignment (single toggle) | Original, untouched | GXV base file |
+| CRT core (HTF mapping, candle build, separators) | Original, untouched | Sam base file |
+| ICT / QT Alignment (single toggle) | Original, untouched | Sam base file |
 | SMT (multi-rank correlated-pair divergence) | Original, untouched | GXV base file |
-| CISD detection + Fibonacci projections | Original, untouched | GXV base file |
+| CISD detection + Fibonacci projections | Original, untouched | Sam base file |
 | True Opens (Session / Day / Week / Month / Year) | **Replaced** | Daye's Quarterly Theory — True Opens (open-source) |
-| HTF candle preview panel + dashboard | Original, untouched | GXV base file |
+| HTF candle preview panel + dashboard | Original, untouched | Sam base file |
 | tCISD, Turtle Soup, CRT H/L | **Removed** | — |
 
 ---
