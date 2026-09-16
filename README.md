@@ -6,7 +6,8 @@ Sam's own CRT/CISD/dashboard engine with one embedded third-party module
 
 File: `CRT by Sam.pine`
 
-![CRT Model Pro Inspired](<img width="1778" height="790" alt="CRT-MODEL-PRO" src="https://github.com/user-attachments/assets/153a9cdf-aa94-4d6c-a382-0360a1344939" />)
+## ![CRT Model Pro Inspired](https://www.tradingview.com/script/Lh1wXKCY-CRT-Model-Pro-by-Artas/)
+<img width="1778" height="790" alt="CRT-MODEL-PRO" src="https://github.com/user-attachments/assets/153a9cdf-aa94-4d6c-a382-0360a1344939" />
 
 *The layout above — the LTF chart on the left, the small HTF candle preview
 stack on the right, the compact top-right dashboard, and the CRT H/L levels
