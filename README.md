@@ -1,4 +1,4 @@
-# CRT Model Pro — CRT by Sam (with GXV SMT)
+# CRT Model Pro — CRT by Sam
 
 Pine Script v6 indicator (`overlay=true`). A single merged script combining
 Sam's own CRT/CISD/dashboard engine with one embedded third-party module
@@ -53,7 +53,7 @@ script.
 
 The embedded module is Gregorius_XV's `GXV SMT_Divergences[LITE✦]` v2.1.0,
 used under MPL-2.0. Two things were adapted on top of it for this build,
-both additive — the underlying divergence engine itself is untouched:
+both additive — the underlying divergence engine itself is without his library:
 
 - **SMT Auto Mapping** (default **ON**): when on, SMT shows only the single
   rank that matches the CRT engine's active ICT/QT-mapped timeframe (this
