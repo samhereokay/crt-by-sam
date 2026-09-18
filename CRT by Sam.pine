@@ -18,6 +18,14 @@ indicator("CRT Model Pro - Sam", shorttitle="CRT by Sam", overlay=true, max_boxe
 // based on it — this header, and the author-identity constants inside the
 // SMT section itself, must not be removed or misrepresented.
 //
+// One exception: the original SMT module's Auto pair-correlation lookup
+// depended on an external library (GXVSanctuary/AssetCorrelationUtils),
+// which blocks publishing since only that library's own author can publish
+// scripts that import it. That dependency has been removed — Auto pair
+// resolution for SMT now uses Sam's own correlation table (the same one
+// PSP's "Auto (Ronin)" engine already uses), with no import at all. The
+// SMT divergence/state-machine logic itself is untouched.
+//
 // True Opens is a third source: "Daye's True Opens [Quarterly Theory]",
 // open-source, used with the author's confirmation. See the True Opens
 // section below for detail.
@@ -32,7 +40,7 @@ indicator("CRT Model Pro - Sam", shorttitle="CRT by Sam", overlay=true, max_boxe
 
 string g_sep = "HTF Separator  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-sepColorInput = input.color(color.gray, "Separator Color", group=g_sep)
+sepColorInput = input.color(color.rgb(0, 0, 0), "Separator Color", group=g_sep)
 
 sepStyleInput = input.string(
      "Dotted",
@@ -242,37 +250,37 @@ i_trace_l_sty = input.string(
 string g_htf = "Auto HTF Colors  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 i_htf_bull_body = input.color(
-     color.new(#dbdbdb, 10),
+     color.new(#4caf50, 0),
      "Bull Body",
      inline="htf_body",
      group=g_htf)
 
 i_htf_bear_body = input.color(
-     color.new(#000000, 10),
+     color.new(#2e2e2e, 0),
      "Bear Body",
      inline="htf_body",
      group=g_htf)
 
 i_htf_bull_border = input.color(
-     color.new(#000000, 10),
+     color.new(#2e2e2e, 0),
      "Bull Border",
      inline="htf_border",
      group=g_htf)
 
 i_htf_bear_border = input.color(
-     color.new(#000000, 10),
+     color.new(#2e2e2e, 0),
      "Bear Border",
      inline="htf_border",
      group=g_htf)
 
 i_htf_bull_wick = input.color(
-     color.new(#000000, 10),
+     color.new(#2e2e2e, 0),
      "Bull Wick",
      inline="htf_wick",
      group=g_htf)
 
 i_htf_bear_wick = input.color(
-     color.new(#000000, 10),
+     color.new(#2e2e2e, 0),
      "Bear Wick",
      inline="htf_wick",
      group=g_htf)
@@ -309,7 +317,7 @@ i_mid_show = input.bool(
      group=g_fvg)
 
 i_mid_color = input.color(
-     color.new(#b21a1a, 80),
+     color.new(#f30000, 0),
      "Midpoint Line Color",
      group=g_fvg)
 
@@ -1298,25 +1306,31 @@ isValidHTF() =>
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MAP ONLY ONE ACTIVE HTF
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// This aggregation scans up to 5000 historical 15m bars (x4, counting the
+// 3 correlated-pair passes) to rebuild the 5 HTF candles. Every consumer of
+// its output — the preview panel, the dashboard, PSP marking — only exists
+// inside "if barstate.islast" further down. Running it on every single
+// historical bar was pure waste and is what caused the "script takes too
+// long" runtime error; it's now confined to barstate.islast, which is the
+// only place its result is ever used.
+var array<float> active_o_arr = array.new<float>(5, na)
+var array<float> active_h_arr = array.new<float>(5, na)
+var array<float> active_l_arr = array.new<float>(5, na)
+var array<float> active_c_arr = array.new<float>(5, na)
+var array<int> active_t_arr = array.new<int>(5, na)
 
-array<float> active_o_arr = array.new<float>()
-array<float> active_h_arr = array.new<float>()
-array<float> active_l_arr = array.new<float>()
-array<float> active_c_arr = array.new<float>()
-array<int> active_t_arr = array.new<int>()
+var array<float> active_o2 = array.new<float>(5, na)
+var array<float> active_c2 = array.new<float>(5, na)
 
-array<float> active_o2 = array.new<float>()
-array<float> active_c2 = array.new<float>()
+var array<float> active_o3 = array.new<float>(5, na)
+var array<float> active_c3 = array.new<float>(5, na)
 
-array<float> active_o3 = array.new<float>()
-array<float> active_c3 = array.new<float>()
+var array<float> active_o4 = array.new<float>(5, na)
+var array<float> active_c4 = array.new<float>(5, na)
 
-array<float> active_o4 = array.new<float>()
-array<float> active_c4 = array.new<float>()
+var array<int> psp_active = array.new<int>(5, 0)
 
-array<int> psp_active = array.new<int>(5, 0)
-
-if not na(activeTfMinutes)
+if barstate.islast and not na(activeTfMinutes)
     [tmp_o, tmp_h, tmp_l, tmp_c, tmp_t] = f_get_custom_htf(activeTfMinutes, g_t15, g_o15, g_h15, g_l15, g_c15)
 
 
@@ -1408,10 +1422,19 @@ int t4 = array.get(active_t_arr, 4)
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TRACE INDEX
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// idx_active needs to track the active HTF period's rollover on every bar
+// (it's the trace-lines' start point, which spans back to when the current
+// period began — it can't be reconstructed only at the last bar). Since o0
+// above is now only refreshed on barstate.islast, it can't drive this
+// anymore. Instead this uses the same anchor function directly on the
+// current bar's time — a single O(1) calculation, not a 5000-bar scan —
+// to get the same "did a new HTF period just start" signal cheaply, on
+// every bar.
+float liveActiveOpen = not na(activeTfMinutes) ? f_htf_anchor_time(time, activeTfMinutes) : na
 
 var int idx_active = bar_index
 
-if t0 != t0[1]
+if liveActiveOpen != liveActiveOpen[1]
     idx_active := bar_index
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2134,7 +2157,10 @@ if barstate.islast
 // this notice.
 //==============================================================================
 
-import GXVSanctuary/AssetCorrelationUtils/5 as GXV
+// No external library dependency — SMT's Auto pair resolution uses Sam's own
+// correlation table below (f_get_ronin_correlation, the same one PSP's Auto
+// (Ronin) engine already uses), so this script has no import and can be
+// published standalone.
 
 //==============================================================================
 // Release identity / canonical author fingerprint
@@ -2184,31 +2210,31 @@ smt_auto_mapping = input.bool(true, "SMT Auto Mapping", group=g_smt_gates,
      tooltip="Uses the active ICT/QT HTF mapping for SMT. ICT and QT follow the same QT Alignment toggle above.")
 
 smt_15m_show = input.bool(false, "15m", inline="smt_r1", group=g_smt_ranks)
-smt_15m_clr = input.color(#dbdbdb, "", inline="smt_r1", group=g_smt_ranks)
+smt_15m_clr = input.color(#000000, "", inline="smt_r1", group=g_smt_ranks)
 smt_30m_show = input.bool(false, "30m", inline="smt_r1", group=g_smt_ranks)
-smt_30m_clr = input.color(#dbdbdb, "", inline="smt_r1", group=g_smt_ranks)
+smt_30m_clr = input.color(#000000, "", inline="smt_r1", group=g_smt_ranks)
 smt_1h_show = input.bool(true, "1H ", inline="smt_r1", group=g_smt_ranks)
-smt_1h_clr = input.color(#dbdbdb, "", inline="smt_r1", group=g_smt_ranks)
+smt_1h_clr = input.color(#000000, "", inline="smt_r1", group=g_smt_ranks)
 smt_90m_show = input.bool(true, "90m", inline="smt_r1", group=g_smt_ranks)
-smt_90m_clr = input.color(#dbdbdb, "", inline="smt_r1", group=g_smt_ranks)
+smt_90m_clr = input.color(#000000, "", inline="smt_r1", group=g_smt_ranks)
 smt_4h_show = input.bool(true, "4H ", inline="smt_r2", group=g_smt_ranks)
-smt_4h_clr = input.color(#dbdbdb, "", inline="smt_r2", group=g_smt_ranks)
+smt_4h_clr = input.color(#000000, "", inline="smt_r2", group=g_smt_ranks)
 smt_6h_show = input.bool(false, "6H ", inline="smt_r2", group=g_smt_ranks)
-smt_6h_clr = input.color(#dbdbdb, "", inline="smt_r2", group=g_smt_ranks)
+smt_6h_clr = input.color(#000000, "", inline="smt_r2", group=g_smt_ranks)
 smt_7h_show = input.bool(true, "7H ", inline="smt_r2", group=g_smt_ranks)
-smt_7h_clr = input.color(#dbdbdb, "", inline="smt_r2", group=g_smt_ranks)
+smt_7h_clr = input.color(#000000, "", inline="smt_r2", group=g_smt_ranks)
 smt_12h_show = input.bool(true, "12H", inline="smt_r2", group=g_smt_ranks)
-smt_12h_clr = input.color(#dbdbdb, "", inline="smt_r2", group=g_smt_ranks)
+smt_12h_clr = input.color(#000000, "", inline="smt_r2", group=g_smt_ranks)
 smt_1d_show = input.bool(true, "1D ", inline="smt_r3", group=g_smt_ranks)
-smt_1d_clr = input.color(#b8b8b8, "", inline="smt_r3", group=g_smt_ranks)
+smt_1d_clr = input.color(#000000, "", inline="smt_r3", group=g_smt_ranks)
 smt_1w_show = input.bool(true, "1W ", inline="smt_r3", group=g_smt_ranks)
-smt_1w_clr = input.color(#b8b8b8, "", inline="smt_r3", group=g_smt_ranks)
+smt_1w_clr = input.color(#000000, "", inline="smt_r3", group=g_smt_ranks)
 smt_1m_show = input.bool(false, "1M ", inline="smt_r3", group=g_smt_ranks)
-smt_1m_clr = input.color(#9c9c9c, "", inline="smt_r3", group=g_smt_ranks)
+smt_1m_clr = input.color(#000000, "", inline="smt_r3", group=g_smt_ranks)
 smt_3m_show = input.bool(false, "3M ", inline="smt_r3", group=g_smt_ranks)
-smt_3m_clr = input.color(#636363, "", inline="smt_r3", group=g_smt_ranks)
+smt_3m_clr = input.color(#000000, "", inline="smt_r3", group=g_smt_ranks)
 smt_12m_show = input.bool(false, "12M", inline="smt_r4", group=g_smt_ranks)
-smt_12m_clr = input.color(#2e2e2e, "", inline="smt_r4", group=g_smt_ranks)
+smt_12m_clr = input.color(#000000, "", inline="smt_r4", group=g_smt_ranks)
 
 smt_line_style_input = input.string("___", "SMT Line Style", options=["___", "----", "...."], group=g_smt_ranks)
 smt_line_style = smt_line_style_input == "----" ? line.style_dashed : smt_line_style_input == "...." ? line.style_dotted : line.style_solid
@@ -2236,7 +2262,6 @@ smt_session_4_end = input.string("17:00", "—", options=["17:00", "17:30", "18:
 smt_render_current_day_only = input.bool(false, "Render Only Current Day Range                                            ", group=g_smt_sessions)
 
 smt_pair_selection = input.string("Auto", "Pair Selection", options=["Auto", "Manual"], group=g_smt_assets, tooltip=TIP_MANUAL_PAIRS)
-smt_correlation_mode = input.string("Classic", "Correlation Mode", options=["GXT", "Classic"], group=g_smt_assets)
 smt_correlation_type = input.string("Triad", "Correlation Type", options=["Dyad", "Triad", "Tetrad"], group=g_smt_assets)
 smt_manual_pair1 = input.symbol("", "Pair 1", inline="smt_manual_pair1", group=g_smt_assets, active=smt_pair_selection == "Manual")
 smt_manual_pair1_inverted = input.bool(false, "Inversed?", inline="smt_manual_pair1", group=g_smt_assets, active=smt_pair_selection == "Manual")
@@ -2476,16 +2501,22 @@ if corr_manual_mode
     corr_inv2 := corr_manual_pair2_ok ? smt_manual_pair2_inverted : false
     corr_inv3 := corr_manual_pair3_ok ? smt_manual_pair3_inverted : false
 else
-    GXV.AssetConfig corr_cfg = GXV.resolveAssetsByCorrelation(syminfo.ticker, syminfo.tickerid, syminfo.type, syminfo.session, false, smt_correlation_mode, smt_correlation_type)
-    corr_base_ok := corr_cfg.detected and f_has_symbol(corr_cfg.secondary) and not f_same_symbol(corr_cfg.secondary, syminfo.tickerid)
-    corr_has_tertiary := corr_type_pair2 and corr_base_ok and f_has_symbol(corr_cfg.tertiary) and not f_same_symbol(corr_cfg.tertiary, syminfo.tickerid) and not f_same_symbol(corr_cfg.secondary, corr_cfg.tertiary)
-    corr_has_quaternary := corr_type_pair3 and corr_has_tertiary and f_has_symbol(corr_cfg.quaternary) and not f_same_symbol(corr_cfg.quaternary, syminfo.tickerid) and not f_same_symbol(corr_cfg.quaternary, corr_cfg.secondary) and not f_same_symbol(corr_cfg.quaternary, corr_cfg.tertiary)
-    csym := corr_base_ok ? corr_cfg.secondary : ""
-    tsym3 := corr_has_tertiary ? corr_cfg.tertiary : ""
-    qsym4 := corr_has_quaternary ? corr_cfg.quaternary : ""
-    corr_inv1 := corr_base_ok ? corr_cfg.invertSecondary : false
-    corr_inv2 := corr_has_tertiary ? corr_cfg.invertTertiary : false
-    corr_inv3 := corr_has_quaternary ? corr_cfg.invertQuaternary : false
+    // Own auto-correlation resolver — reuses the same public
+    // market-relationship table as PSP's "Auto (Ronin)" engine above
+    // (f_get_ronin_correlation), instead of an external library. This is
+    // the whole reason for the change: a script that imports someone
+    // else's library can't be published unless you own that library.
+    [smtAutoT2, smtAutoT3, smtAutoT4, smtAutoInv2, smtAutoInv3, smtAutoInv4] = f_get_ronin_correlation()
+    bool smtAutoDetected = f_has_symbol(smtAutoT2)
+    corr_base_ok := smtAutoDetected and not f_same_symbol(smtAutoT2, syminfo.tickerid)
+    corr_has_tertiary := corr_type_pair2 and corr_base_ok and f_has_symbol(smtAutoT3) and not f_same_symbol(smtAutoT3, syminfo.tickerid) and not f_same_symbol(smtAutoT2, smtAutoT3)
+    corr_has_quaternary := corr_type_pair3 and corr_has_tertiary and f_has_symbol(smtAutoT4) and not f_same_symbol(smtAutoT4, syminfo.tickerid) and not f_same_symbol(smtAutoT4, smtAutoT2) and not f_same_symbol(smtAutoT4, smtAutoT3)
+    csym := corr_base_ok ? smtAutoT2 : ""
+    tsym3 := corr_has_tertiary ? smtAutoT3 : ""
+    qsym4 := corr_has_quaternary ? smtAutoT4 : ""
+    corr_inv1 := corr_base_ok ? smtAutoInv2 : false
+    corr_inv2 := corr_has_tertiary ? smtAutoInv3 : false
+    corr_inv3 := corr_has_quaternary ? smtAutoInv4 : false
 corr_pair1_configured := corr_base_ok and f_has_symbol(csym)
 corr_pair2_configured := corr_has_tertiary and f_has_symbol(tsym3)
 corr_pair3_configured := corr_has_quaternary and f_has_symbol(qsym4)
@@ -2498,9 +2529,9 @@ string corr_fetch_sym3 = corr_pair3_configured ? qsym4 : INVALID_QUATERNARY
 corr_pair1_ok := corr_pair1_configured and not na(xh0) and not na(xl0) and not na(xt0)
 corr_pair2_ok := corr_pair2_configured and not na(yh0) and not na(yl0) and not na(yt0)
 corr_pair3_ok := corr_pair3_configured and not na(zh0) and not na(zl0) and not na(zt0)
-string smt_pair = corr_pair1_configured ? GXV.getAssetTicker(csym) : ""
-string smt_pair2 = corr_pair2_configured ? GXV.getAssetTicker(tsym3) : ""
-string smt_pair3 = corr_pair3_configured ? GXV.getAssetTicker(qsym4) : ""
+string smt_pair = corr_pair1_configured ? f_asset_token(csym) : ""
+string smt_pair2 = corr_pair2_configured ? f_asset_token(tsym3) : ""
+string smt_pair3 = corr_pair3_configured ? f_asset_token(qsym4) : ""
 SmtCorrelationDescriptor smt_corr_pair1 = SmtCorrelationDescriptor.new(csym, smt_pair, corr_inv1, corr_pair1_configured, corr_pair1_ok, xh0, xl0, xt0)
 SmtCorrelationDescriptor smt_corr_pair2 = SmtCorrelationDescriptor.new(tsym3, smt_pair2, corr_inv2, corr_pair2_configured, corr_pair2_ok, yh0, yl0, yt0)
 SmtCorrelationDescriptor smt_corr_pair3 = SmtCorrelationDescriptor.new(qsym4, smt_pair3, corr_inv3, corr_pair3_configured, corr_pair3_ok, zh0, zl0, zt0)
@@ -3239,11 +3270,11 @@ bool crtTo_showWeek  = input.bool(true, "True Week Open (Mon 18:00 NY)",    grou
 bool crtTo_showMonth = input.bool(true, "True Month Open (2nd Mon 18:00)",  group=g_trueopens)
 bool crtTo_showYear  = input.bool(true, "True Year Open (Apr 1, 00:00 NY)", group=g_trueopens)
 
-color crtTo_sessionColor = input.color(color.black, "Session Color", group=g_trueopens)
-color crtTo_dayColor     = input.color(color.black, "Day Color",     group=g_trueopens)
-color crtTo_weekColor    = input.color(color.black, "Week Color",    group=g_trueopens)
-color crtTo_monthColor   = input.color(color.black, "Month Color",   group=g_trueopens)
-color crtTo_yearColor    = input.color(color.black, "Year Color",    group=g_trueopens)
+color crtTo_sessionColor = input.color(color.rgb(0, 0, 0), "Session Color", group=g_trueopens)
+color crtTo_dayColor     = input.color(color.rgb(0, 0, 0), "Day Color",     group=g_trueopens)
+color crtTo_weekColor    = input.color(color.rgb(0, 0, 0), "Week Color",    group=g_trueopens)
+color crtTo_monthColor   = input.color(color.rgb(0, 0, 0), "Month Color",   group=g_trueopens)
+color crtTo_yearColor    = input.color(color.rgb(0, 0, 0), "Year Color",    group=g_trueopens)
 
 int    crtTo_lineWidth   = input.int(1, "Line Width", minval=1, maxval=5, group=g_trueopens)
 string crtTo_lineStyleIn = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group=g_trueopens)
@@ -4055,328 +4086,3 @@ if barstate.islast
         for _r = 0 to 4
             table.cell(crtDash, 0, _r, "", bgcolor=color.new(color.white, 100))
             table.cell(crtDash, 1, _r, "", bgcolor=color.new(color.white, 100))
-// © original work — independent implementation inspired by the publicly documented
-// "Turtle Soup" sweep-and-reject concept (swing liquidity, same-bar rejection,
-// multi-timeframe, invalidation on later close-through). Not a copy of any
-// protected script's source code.
-//@version=6
-//indicator("Turtle Soup - (Original by Sam)", overlay = true, max_lines_count = 500, max_labels_count = 500)
-
-// ───────────────────────── Swing Lookback (user-configurable range) ─────────────────────────
-// Replaces the old fixed "var int SWING_LOOKBACK = 5". The user now sets a
-// Min/Max range; the two ends are normalized so it still works if entered
-// reversed, and every place in the script that previously used the single
-// SWING_LOOKBACK constant now uses lookbackMin or lookbackMax as appropriate.
-swingLookbackMin = input.int(
-     defval = 5,
-     title = "Swing Lookback Minimum",
-     minval = 1,
-     maxval = 200,
-     group = "Swing Lookback",
-     tooltip = "Used as the confirmation (right-side) bars for pivot detection, and as the bar offset used to time-anchor a detected swing.")
-
-swingLookbackMax = input.int(
-     defval = 10,
-     title = "Swing Lookback Maximum",
-     minval = 1,
-     maxval = 200,
-     group = "Swing Lookback",
-     tooltip = "Used as the strength (left-side) bars for pivot detection - i.e. how many bars must be lower/higher on the left for a swing to qualify.")
-
-lookbackMin = math.min(swingLookbackMin, swingLookbackMax)
-lookbackMax = math.max(swingLookbackMin, swingLookbackMax)
-
-// ───────────────────────── General ─────────────────────────
-maxSweeps = input.int(20, "Max Sweeps Displayed", minval = 1, maxval = 200,
-     tooltip = "Only the most recent X turtle soup markers are kept on the chart, per timeframe.", group = "General")
-
-showUnconfirmed = input.bool(true, "Show Unconfirmed Sweeps (extra, not in original)",
-     tooltip = "Optional: shows a light provisional marker while the reacting bar is still open, before it is confirmed on close. Turn off for behavior that matches the documented 'confirmed on closed bars only' logic exactly.", group = "General")
-
-// ───────────────────────── Timeframe Settings ─────────────────────────
-showCurrentTF = input.bool(true, "Show Current TF", group = "Timeframe Settings")
-
-showHTF1 = input.bool(false, "Show HTF 1", inline = "tf1", group = "Timeframe Settings")
-tf1      = input.timeframe("15", "", inline = "tf1", group = "Timeframe Settings")
-
-showHTF2 = input.bool(false, "Show HTF 2", inline = "tf2", group = "Timeframe Settings")
-tf2      = input.timeframe("60", "", inline = "tf2", group = "Timeframe Settings")
-
-showHTF3 = input.bool(false, "Show HTF 3", inline = "tf3", group = "Timeframe Settings")
-tf3      = input.timeframe("240", "", inline = "tf3", group = "Timeframe Settings")
-
-showHTF4 = input.bool(false, "Show HTF 4", inline = "tf4", group = "Timeframe Settings")
-tf4      = input.timeframe("1D", "", inline = "tf4", group = "Timeframe Settings")
-
-showHTF5 = input.bool(false, "Show HTF 5", inline = "tf5", group = "Timeframe Settings")
-tf5      = input.timeframe("1W", "", inline = "tf5", group = "Timeframe Settings")
-
-// ───────────────────────── Appearance ─────────────────────────
-showSweeps  = input.bool(true, "Show Turtle Soups", inline = "ts_drawing",
-     tooltip = "Set the visibility and color of turtle soup drawings.", group = "Turtle Soup Appearance")
-tsColor     = input.color(color.new(#000000, 0), "", inline = "ts_drawing", group = "Turtle Soup Appearance")
-tsMarker    = input.string("💎", "", inline = "ts_drawing",
-     tooltip = "Text shown at each swept level - swap the turtle for any emoji or word you like.", group = "Turtle Soup Appearance")
-
-lineStyleInput = input.string("Dotted", "Sweep Line Style", options = ["Solid", "Dashed", "Dotted"], inline = "ts_drawing2", group = "Turtle Soup Appearance")
-labelSizeInput = input.string("Tiny", "Label Size", options = ["Tiny", "Small", "Normal", "Large"], inline = "ts_drawing2", group = "Turtle Soup Appearance")
-
-labelHTF = input.bool(true, "Label HTF Timeframe",
-     tooltip = "Prefix higher-timeframe turtle markers with their timeframe label (like H1) so you can tell which timeframe was swept.", group = "Turtle Soup Appearance")
-
-// ───────────────────────── Alerts ─────────────────────────
-alertsEnabled = input.bool(true, "Enable Alerts", tooltip = "Master alert toggle.", group = "Alerts")
-
-session1On = input.bool(true, "Session 1", inline = "window1", group = "Alerts")
-session1   = input.session("0930-1600", "", inline = "window1", group = "Alerts")
-
-session2On = input.bool(false, "Session 2", inline = "window2", group = "Alerts")
-session2   = input.session("2000-0000", "", inline = "window2", group = "Alerts")
-
-session3On = input.bool(false, "Session 3", inline = "window3", group = "Alerts")
-session3   = input.session("0200-0500", "", inline = "window3", group = "Alerts")
-
-alertOnSweep = input.bool(true, "Alert on Turtle Soup", group = "Alerts")
-buysideMsg   = input.string("Buyside liquidity was swept and rejected (turtle soup).", "Buyside Swept Message", group = "Alerts")
-sellsideMsg  = input.string("Sellside liquidity was swept and rejected (turtle soup).", "Sellside Swept Message", group = "Alerts")
-
-// ───────────────────────── Helpers ─────────────────────────
-getLineStyle(s) =>
-    s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
-
-getLabelSize(s) =>
-    s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Normal" ? size.normal : size.large
-
-inAnySession() =>
-    s1 = session1On and not na(time(timeframe.period, session1))
-    s2 = session2On and not na(time(timeframe.period, session2))
-    s3 = session3On and not na(time(timeframe.period, session3))
-    s1 or s2 or s3
-
-fireAlert(isBull) =>
-    if alertsEnabled and alertOnSweep and inAnySession()
-        alert(isBull ? buysideMsg : sellsideMsg, alert.freq_once_per_bar_close)
-    true
-
-// ───────────────────────── Human-readable timeframe labels ─────────────────────────
-// input.timeframe() returns raw strings like "60" or "240" for hour-based
-// timeframes, which is what was showing up on chart labels instead of
-// something readable. This converts those raw minute-strings into "1h",
-// "4h", etc., while leaving D/W/M/S-suffixed strings (already readable) alone.
-formatTF(tf) =>
-    string result = tf
-    isSpecial = str.contains(tf, "D") or str.contains(tf, "W") or str.contains(tf, "M") or str.contains(tf, "S")
-    if not isSpecial
-        mins = str.tonumber(tf)
-        if not na(mins)
-            if mins < 60
-                result := str.tostring(mins, "#") + "m"
-            else if mins < 1440
-                result := str.tostring(mins / 60, "#") + "h"
-            else
-                result := str.tostring(mins / 1440, "#") + "d"
-    result
-
-tf1Label = formatTF(tf1)
-tf2Label = formatTF(tf2)
-tf3Label = formatTF(tf3)
-tf4Label = formatTF(tf4)
-tf5Label = formatTF(tf5)
-
-// ───────────────────────── Pivot + sweep detection ─────────────────────────
-// Returns TIME anchors (not bar_index) so the result is safe to draw with
-// regardless of whether it came from the main chart or from request.security().
-// Uses the shared lookbackMin/lookbackMax range: lookbackMax is the left-side
-// (strength) bars, lookbackMin is the right-side (confirmation) bars, which is
-// also the correct offset for reading back the bar time of the swing.
-detectSweep() =>
-    ph = ta.pivothigh(high, lookbackMax, lookbackMin)
-    pl = ta.pivotlow(low, lookbackMax, lookbackMin)
-
-    var float lastSwingHigh     = na
-    var float lastSwingLow      = na
-    var int   lastSwingHighTime = na
-    var int   lastSwingLowTime  = na
-
-    if not na(ph)
-        lastSwingHigh     := ph
-        lastSwingHighTime := time[lookbackMin]
-    if not na(pl)
-        lastSwingLow     := pl
-        lastSwingLowTime := time[lookbackMin]
-
-    bullSweep = not na(lastSwingLow)  and low  < lastSwingLow  and close > lastSwingLow
-    bearSweep = not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
-
-    [bullSweep, bearSweep, lastSwingHigh, lastSwingLow, lastSwingHighTime, lastSwingLowTime]
-
-// ───────────────────────── Drawing (time-anchored) ─────────────────────────
-drawConfirmed(isBull, level, fromTime, tfLabel) =>
-    var line  ln = na
-    var label lb = na
-    if showSweeps
-        ln := line.new(fromTime, level, time, level, xloc = xloc.bar_time,
-             color = tsColor, style = getLineStyle(lineStyleInput), width = 1)
-        txt = (labelHTF and tfLabel != "" ? tfLabel + " " : "") + tsMarker
-        lb  := label.new(time, level, txt, xloc = xloc.bar_time,
-             style = isBull ? label.style_label_up : label.style_label_down,
-             color = color.new(tsColor, 100), textcolor = tsColor, size = getLabelSize(labelSizeInput))
-    [ln, lb]
-
-drawProvisional(fromTime, level, isBull, tfLabel) =>
-    ln = line.new(fromTime, level, time, level, xloc = xloc.bar_time,
-         color = color.new(tsColor, 55), style = line.style_dotted, width = 1)
-    txt = (labelHTF and tfLabel != "" ? tfLabel + " " : "") + tsMarker + " ?"
-    lb  = label.new(time, level, txt, xloc = xloc.bar_time,
-         style = isBull ? label.style_label_up : label.style_label_down,
-         color = color.new(tsColor, 100), textcolor = color.new(tsColor, 40), size = getLabelSize(labelSizeInput))
-    [ln, lb]
-
-// ───────────────────────── Marker set (per source) ─────────────────────────
-// Confirmed markers are tracked with their level+direction so invalidation
-// (documented behavior: removed if price later closes back through the level)
-// can be checked every bar, and so the oldest can be dropped once over the cap.
-invalidateMarkers(array<float> levels, array<bool> bulls, array<line> lines, array<label> labels, currentClose) =>
-    if not na(currentClose)
-        i = array.size(levels) - 1
-        while i >= 0
-            lvl = array.get(levels, i)
-            isB = array.get(bulls, i)
-            invalidated = isB ? currentClose < lvl : currentClose > lvl
-            if invalidated
-                line.delete(array.get(lines, i))
-                label.delete(array.get(labels, i))
-                array.remove(levels, i)
-                array.remove(bulls, i)
-                array.remove(lines, i)
-                array.remove(labels, i)
-            i -= 1
-    true
-
-appendMarker(array<float> levels, array<bool> bulls, array<line> lines, array<label> labels, isBull, level, ln, lb, maxCount) =>
-    array.push(levels, level)
-    array.push(bulls, isBull)
-    array.push(lines, ln)
-    array.push(labels, lb)
-    while array.size(levels) > maxCount
-        line.delete(array.shift(lines))
-        label.delete(array.shift(labels))
-        array.shift(levels)
-        array.shift(bulls)
-    true
-
-// ───────────────────────── Pending (unconfirmed) state per source ─────────────────────────
-type PendingState
-    bool  active    = false
-    line  provLine  = na
-    label provLabel = na
-
-clearPending(PendingState p) =>
-    if not na(p.provLine)
-        line.delete(p.provLine)
-    if not na(p.provLabel)
-        label.delete(p.provLabel)
-    p.active    := false
-    p.provLine  := na
-    p.provLabel := na
-    true
-
-// ───────────────────────── Per-source processing ─────────────────────────
-// confirmed = has this source's bar (main or HTF) actually closed.
-// confirmedClose = that bar's close, only passed in on the bar it confirms (else na).
-processSource(array<float> levels, array<bool> bulls, array<line> lines, array<label> labels, PendingState p,
-     bull, bear, sh, sl, shTime, slTime, tfLabel, confirmed, confirmedClose, maxCount) =>
-    sweepNow  = bull or bear
-    isBullNow = bull
-    levelNow  = bull ? sl : sh
-    timeNow   = bull ? slTime : shTime
-
-    if confirmed
-        if p.active
-            clearPending(p)
-        invalidateMarkers(levels, bulls, lines, labels, confirmedClose)
-        if sweepNow
-            [ln, lb] = drawConfirmed(isBullNow, levelNow, timeNow, tfLabel)
-            appendMarker(levels, bulls, lines, labels, isBullNow, levelNow, ln, lb, maxCount)
-            fireAlert(isBullNow)
-        true
-    else
-        if sweepNow and showUnconfirmed
-            if p.active
-                clearPending(p)
-            [ln, lb] = drawProvisional(timeNow, levelNow, isBullNow, tfLabel)
-            p.active    := true
-            p.provLine  := ln
-            p.provLabel := lb
-        else if p.active
-            clearPending(p)
-        true
-
-// ───────────────────────── Current timeframe ─────────────────────────
-var float[] curLevels = array.new_float()
-var bool[]  curBulls  = array.new_bool()
-var line[]  curLines  = array.new_line()
-var label[] curLabels = array.new_label()
-var PendingState pCur = PendingState.new()
-
-if showCurrentTF
-    [bull, bear, sh, sl, shTime, slTime] = detectSweep()
-    curClose = barstate.isconfirmed ? close : na
-    processSource(curLevels, curBulls, curLines, curLabels, pCur, bull, bear, sh, sl, shTime, slTime, "", barstate.isconfirmed, curClose, maxSweeps)
-
-// ───────────────────────── Higher timeframe wrapper ─────────────────────────
-htfSweep(tf) =>
-    [b, r, sh, sl, shTime, slTime] = request.security(syminfo.tickerid, tf, detectSweep(), lookahead = barmerge.lookahead_off)
-    htfConfirmed = request.security(syminfo.tickerid, tf, barstate.isconfirmed, lookahead = barmerge.lookahead_off)
-    htfClose     = request.security(syminfo.tickerid, tf, close, lookahead = barmerge.lookahead_off)
-    [b, r, sh, sl, shTime, slTime, htfConfirmed, htfClose]
-
-var float[] h1Levels = array.new_float()
-var bool[]  h1Bulls  = array.new_bool()
-var line[]  h1Lines  = array.new_line()
-var label[] h1Labels = array.new_label()
-var PendingState p1 = PendingState.new()
-
-var float[] h2Levels = array.new_float()
-var bool[]  h2Bulls  = array.new_bool()
-var line[]  h2Lines  = array.new_line()
-var label[] h2Labels = array.new_label()
-var PendingState p2 = PendingState.new()
-
-var float[] h3Levels = array.new_float()
-var bool[]  h3Bulls  = array.new_bool()
-var line[]  h3Lines  = array.new_line()
-var label[] h3Labels = array.new_label()
-var PendingState p3 = PendingState.new()
-
-var float[] h4Levels = array.new_float()
-var bool[]  h4Bulls  = array.new_bool()
-var line[]  h4Lines  = array.new_line()
-var label[] h4Labels = array.new_label()
-var PendingState p4 = PendingState.new()
-
-var float[] h5Levels = array.new_float()
-var bool[]  h5Bulls  = array.new_bool()
-var line[]  h5Lines  = array.new_line()
-var label[] h5Labels = array.new_label()
-var PendingState p5 = PendingState.new()
-
-if showHTF1
-    [b1, r1, sh1, sl1, sht1, slt1, tsConf1, tsClose1] = htfSweep(tf1)
-    processSource(h1Levels, h1Bulls, h1Lines, h1Labels, p1, b1, r1, sh1, sl1, sht1, slt1, tf1Label, tsConf1, tsConf1 ? tsClose1 : na, maxSweeps)
-
-if showHTF2
-    [b2, r2, sh2, sl2, sht2, slt2, tsConf2, tsClose2] = htfSweep(tf2)
-    processSource(h2Levels, h2Bulls, h2Lines, h2Labels, p2, b2, r2, sh2, sl2, sht2, slt2, tf2Label, tsConf2, tsConf2 ? tsClose2 : na, maxSweeps)
-
-if showHTF3
-    [b3, r3, sh3, sl3, sht3, slt3, tsConf3, tsClose3] = htfSweep(tf3)
-    processSource(h3Levels, h3Bulls, h3Lines, h3Labels, p3, b3, r3, sh3, sl3, sht3, slt3, tf3Label, tsConf3, tsConf3 ? tsClose3 : na, maxSweeps)
-
-if showHTF4
-    [b4, r4, sh4, sl4, sht4, slt4, tsConf4, tsClose4] = htfSweep(tf4)
-    processSource(h4Levels, h4Bulls, h4Lines, h4Labels, p4, b4, r4, sh4, sl4, sht4, slt4, tf4Label, tsConf4, tsConf4 ? tsClose4 : na, maxSweeps)
-
-if showHTF5
-    [b5, r5, sh5, sl5, sht5, slt5, tsConf5, tsClose5] = htfSweep(tf5)
-    processSource(h5Levels, h5Bulls, h5Lines, h5Labels, p5, b5, r5, sh5, sl5, sht5, slt5, tf5Label, tsConf5, tsConf5 ? tsClose5 : na, maxSweeps)
