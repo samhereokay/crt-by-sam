@@ -2826,8 +2826,8 @@ f_smt_build_sweeps(SmtRangeState st, bool inverse) =>
     bool lowSweep = ready and (inverse ? f_smt_high_swept(lowB, lowA) : f_smt_low_swept(lowB, lowA))
     SmtSweepState.new(ready, highSweep, lowSweep, highA, highB, lowA, lowB, highTimeA, highTimeB, lowTimeA, lowTimeB, highBarA, highBarB, lowBarA, lowBarB)
 
-f_smt_xor(bool first, bool second) =>
-    (first and not second) or (not first and second)
+f_smt_xor(bool first, bool second_val) =>
+    (first and not second_val) or (not first and second_val)
 
 // Pure divergence truth: exactly one synchronized market sweeps corresponding liquidity.
 f_smt_resolve_pair_state(SmtSweepState mainSweep, SmtSweepState pairSweep) =>
